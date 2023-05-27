@@ -1,0 +1,123 @@
+from game_functions.database.db import get_db
+
+class Item:
+    def __init__(self, item_id):
+        self.db = get_db()
+        self.data = self.db.items.find_one({"_id": item_id})
+
+    @staticmethod
+    def create(item_data):
+        db = get_db()
+        required_keys = ["_id", "name", "collection", "rarity", "health", "damage", "price", "sell_price", "drop_rate", "places", "type", "subtype", "shop", "tag", "emoji_id", "level_required"]
+        missing_keys = [key for key in required_keys if key not in item_data]
+        if not missing_keys:
+            if isinstance(item_data["tag"], list):
+                # Generate item_code if not provided
+                if "item_code" not in item_data:
+                    item_count = db.items.count_documents({})
+                    item_data["item_code"] = item_count + 1
+                sorted_item_data = {key: item_data[key] for key in required_keys}
+                sorted_item_data["item_code"] = item_data["item_code"]
+                db.items.insert_one(sorted_item_data)
+            else:
+                raise ValueError("Tag must be a list")
+        else:
+            raise ValueError(f"Missing required keys: {', '.join(missing_keys)}")
+
+    @staticmethod
+    def get_collections(*collections):
+        # Returns a list of dictionaries representing items in the specified collections
+        db = get_db()
+        if not collections:
+            return db.list_collection_names()
+        else:
+            items = []
+            for collection in collections:
+                items.extend(list(db.items.find({"collection": collection}).sort("name")))
+            return items
+
+    @staticmethod
+    def get_shop_items(only_available_collection=True):
+        # Returns a list of dictionaries representing items available in the shop
+        db = get_db()
+        shop_items = list(db.items.find({"shop": True}))
+        if only_available_collection:
+            available_collections = [doc["_id"] for doc in db.collection_packs.find({"available": True})]
+            shop_items = [item for item in shop_items if item["collection"] in available_collections or not db.collection_packs.count_documents({"_id": item["collection"]})]
+        return shop_items
+
+    @staticmethod
+    def get_place_items(place, only_available_collection=True):
+        # Returns a list of dictionaries representing items available in the specified place
+        db = get_db()
+        place_items = list(db.items.find({f"places.{place}": True}))
+        if only_available_collection:
+            available_collections = [doc["_id"] for doc in db.collection_packs.find({"available": True})]
+            place_items = [item for item in place_items if item["collection"] in available_collections or not db.collection_packs.count_documents({"_id": item["collection"]})]
+        return place_items
+
+    @staticmethod
+    def get_type_items(type_, only_available_collection=True):
+      # Returns a list of dictionaries representing items of the specified type
+      db=get_db()
+      type_items=list(db.items.find({"type":type_}))
+      if only_available_collection:
+          available_collections=[doc["_id"] for doc in db.collection_packs.find({"available":True})]
+          type_items=[item for item in type_items if item["collection"] in available_collections or not db.collection_packs.count_documents({"_id":item["collection"]})]
+      return type_items
+
+    @staticmethod
+    def get_alphabetical_items():
+      # Returns a list of dictionaries representing all items sorted alphabetically by name
+      db=get_db()
+      return list(db.items.find().sort("name"))
+
+    @staticmethod
+    def get_rarity_items(*rarities, return_unknown=False):
+      # Returns a list of dictionaries representing items of the specified rarities
+      db=get_db()
+      items=[]
+      for rarity in rarities:
+          items.extend(list(db.items.find({"rarity":rarity})))
+      if return_unknown:
+          unknown_rarity_items=list(db.items.find({"rarity":{"$nin":rarities}}))
+          items.extend(unknown_rarity_items)
+      return items
+
+    @staticmethod
+    def get_tag_items(*tags, only_available_collection=True):
+      # Returns a list of dictionaries representing items with the specified tags
+      db=get_db()
+      tag_items=list(db.items.find({"tag":{"$in":tags}}))
+      if only_available_collection:
+          available_collections=[doc["_id"] for doc in db.collection_packs.find({"available":True})]
+          tag_items=[item for item in tag_items if item["collection"] in available_collections or not db.collection_packs.count_documents({"_id":item["collection"]})]
+      return tag_items
+
+    @staticmethod
+    def update_collection_packs():
+        # Adds all collection names from the items collection to the collection_packs collection with an available field set to True
+        db = get_db()
+        collections = sorted(db.items.distinct('collection'))
+        for collection_name in collections:
+            if not db.collection_packs.count_documents({'_id': collection_name}):
+                db.collection_packs.insert_one({'_id': collection_name, 'available': True})
+
+
+    @staticmethod
+    def rename_collection(old_name, new_name):
+      # Renames all instances of old_name to new_name and prints out all renamed items with index number
+      db=get_db()
+      renamed_count=0
+      for doc in db.items.find({'collection':old_name}):
+          renamed_count+=1
+          print(f"{renamed_count}. {doc['name']}")
+          doc['collection']=new_name
+          db.items.save(doc)
+
+    def to_dict(self):
+      # Returns a dictionary representing the item data
+      return self.data
+
+    def save(self):
+      self.db.items.replace_one({"_id": self.data["_id"]}, self.data)
